@@ -947,7 +947,7 @@ function rheader(){
   const strip=liveStrip(),bj=busyJob();
   $('#live').className='live';$('#live').style.width='auto';$('#live').style.minWidth='260px';$('#live').style.maxWidth='560px';
   const making=(L?L.videos:[]).filter(v=>v.status==='making'||v.status==='cutting').length;
-  $('#live').innerHTML=`${strip?(bj.type==='video'?strip.replace('class="lstrip"','class="lstrip lgo" role="button" tabindex="0" onclick="rgo(\'videos\')"'):strip):making?`<button class="hlink mk" onclick="rgo('videos')" title="Making ${making} video${making>1?'s':''}"><i></i>Making ${making}</button>`:''}<button class="hlink" style="color:${rv==='settings'?'var(--ink)':'var(--t3)'}" onclick="rgo('settings')" ${S.update&&S.update.newer?'title="A new version is out"':''}>Settings${S.update&&S.update.newer?'<span class="sdot"></span>':''}</button>${themeBtn()}`;
+  $('#live').innerHTML=`${strip?(bj.type==='video'?strip.replace('class="lstrip"','class="lstrip lgo" role="button" tabindex="0" onclick="rgo(\'videos\')"'):strip):making?`<button class="hlink mk" onclick="rgo('videos')" title="Making ${making} video${making>1?'s':''}"><i></i>Making ${making}</button>`:''}<button class="homelink ${rv==='settings'?'on':''}" onclick="rgo('settings')" ${S.update&&S.update.newer?'title="A new version is out"':''}>Settings${S.update&&S.update.newer?'<span class="sdot"></span>':''}</button>${themeBtn()}`;
 }
 
 // ---- step 1: pick the clips
