@@ -419,6 +419,7 @@ body.dragging #dropov{display:flex}
 /* returning user: one header (brand, text tabs, live status right) and Home as shelves (Paper "A. Shelves").
    Home never scrolls from 1280x720 to 1920x1080: it shows fewer clips and styles instead (homeFit) */
 body.rh header{height:64px;padding:0 40px;border-bottom:1px solid var(--line)}
+body.rh header{position:relative}body.rh #steps{position:absolute;left:50%;transform:translateX(-50%)}   /* the tab bar sits in the middle of the window, as before */
 body.rh .brandrow{width:auto;gap:18px}body.rh .brand b{font-size:16px;line-height:20px}
 body.rh .live{margin-left:auto;gap:20px}
 body.rh main{padding-left:40px;padding-right:40px}
@@ -475,7 +476,7 @@ body.rh main.hmain{padding:28px 40px 32px}
 }
 @media (max-width:1399px){.hm-drop{width:260px}.hm-lib{gap:40px}}
 @media (max-width:760px){
-  body.rh header{height:auto;padding:14px 16px 10px;flex-wrap:wrap}
+  body.rh header{height:auto;padding:14px 16px 10px;flex-wrap:wrap}body.rh #steps{position:static;transform:none}
   body.rh main,body.rh main.hmain{padding:16px}
   .hm{overflow:visible}.hm-strip,.hm-lib{flex-wrap:wrap;height:auto}.hm-cards{grid-template-columns:1fr;height:auto}.hm-clips{grid-template-columns:1fr}.hm-drop{width:100%;height:76px}.hm-tile{height:76px}
   .hm-card{height:196px}
