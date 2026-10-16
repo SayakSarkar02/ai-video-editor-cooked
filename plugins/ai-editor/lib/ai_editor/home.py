@@ -349,7 +349,7 @@ def job_name(j):
         return Path(a["edit"]).name
     if a.get("handle"):
         return handle_name(a["handle"])
-    return {"style-change": "your style", "modal": "cloud renders", "modal-test": "a test render"}.get(j["type"], j["type"])
+    return {"style-change": "your style", "modal": "cloud renders", "modal-test": "a test render", "storyboard": "storyboard"}.get(j["type"], j["type"])
 
 
 def shown_name(sp):
@@ -2112,6 +2112,20 @@ def make_handler(token):
                     return self.send(200, style_page(read()["root"], q.get("id", ["mine"])[0]))
                 except KeyError:
                     return self.send(404, {"error": "no such style"})
+            if path == "/storyboard/result":
+                jid = q.get("id", [""])[0]
+                d = read()
+                j = next((x for x in d["jobs"] if x["id"] == jid), None)
+                if not j:
+                    return self.send(404, {"status": "not_found"})
+                if j["state"] == "done":
+                    sb = Path(d["root"]) / "storyboards" / (jid + ".json")
+                    if sb.is_file():
+                        return self.send(200, json.loads(sb.read_text("utf-8")) | {"status": "done"})
+                    return self.send(200, {"status": "done", "clips": []})
+                if j["state"] == "failed":
+                    return self.send(200, {"status": "failed", "error": j.get("error", "")})
+                return self.send(200, {"status": "pending"})
             if path == "/disk":
                 return self.send(200, library.disk())
             if path == "/review":   # a library video's review page: its own server, started if it is not running
@@ -2144,6 +2158,8 @@ def make_handler(token):
             path = urlsplit(self.path).path
             if path == "/script":
                 return self.script()
+            if path == "/storyboard/generate":
+                return self.storyboard_generate()
             if path in ("/upload", "/style/cover"):
                 with live.busy():   # no live-reload restart under an upload
                     return self.upload() if path == "/upload" else self.cover()
@@ -2553,6 +2569,8 @@ def make_handler(token):
                 args = {"skill": n, "path": str(md), "text": text}
             elif kind == "skill-new":   # Skills, "Make a new skill": skill-maker, step by step with the user
                 args = {"text": re.sub(r"\s+", " ", str(b.get("text") or "")).strip()[:2000]}
+            elif kind == "storyboard":
+                args = {"idea": re.sub(r"\s+", " ", str(b.get("idea") or "")).strip()[:4000]}
             else:
                 return self.send(400, {"error": "unknown job"})
             j = update(lambda d: queue(d, kind, args))
@@ -2705,6 +2723,20 @@ def make_handler(token):
             if len(text.encode("utf-8")) > SCRIPT_MAX:
                 return self.send(400, {"ok": False, "msg": "That script is over 200 KB. Paste only the lines you film."})
             return self.send(200, {"ok": True, "text": text})
+
+        def storyboard_generate(self):
+            """Storyboard: queues a job for Claude to break a video idea into recordable clips."""
+            try:
+                cap = 1 << 20
+                body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), cap)) or b"{}")
+            except ValueError:
+                return self.send(400, {"error": "not json"})
+            idea = re.sub(r"\s+", " ", str(body.get("idea") or "")).strip()[:4000]
+            if not idea:
+                return self.send(400, {"error": "Write a video idea first."})
+            j = update(lambda d: queue(d, "storyboard", {"idea": idea}))
+            claude_unless_idle(j["id"])
+            return self.send(200, {"ok": True, "id": j["id"]})
 
         def upload(self):
             """A dropped video: streamed to <root>/videos/<name>, never held in memory. ?ref=1: a file for Analyse a

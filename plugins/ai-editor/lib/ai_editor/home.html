@@ -563,6 +563,25 @@ body.rh main.hmain{padding:28px 40px 32px}
 @media (min-width:761px) and (max-width:1000px){.st-grid{grid-template-columns:1fr;overflow-y:auto}.st-col{overflow:visible;max-height:none}}
 @media (max-width:760px){.st-grid{grid-template-columns:1fr;gap:16px}.st-hd,.st-key,.st-line{padding-left:16px;padding-right:16px}.st-body{padding:0 16px 16px}.st-lock{white-space:normal}}
 
+/* ---- storyboard ---- */
+.sb-idea{width:100%;min-height:140px;max-height:320px;resize:vertical;font:inherit;font-size:15px;line-height:22px;padding:14px 16px;border:1px solid var(--ring);border-radius:12px;background:var(--inbg);color:var(--ink);outline:none}
+.sb-idea:focus{border-color:var(--ink);box-shadow:0 0 0 3px rgba(var(--inkR),var(--inkG),var(--inkB),.12)}
+.sb-idea::placeholder{color:var(--t3)}
+.sb-slots{display:flex;flex-direction:column;gap:12px;padding-top:4px}
+.sb-slot{display:flex;gap:14px;align-items:flex-start;padding:14px 16px;border:1.5px dashed var(--ring);border-radius:14px;background:var(--panel);min-height:80px;transition:border-color .15s,background .15s}
+.sb-slot.filled{border-style:solid;border-color:var(--line)}
+.sb-slot.over{border-color:var(--ink);background:var(--act)}
+.sb-slot .num{width:30px;height:30px;border-radius:50%;background:var(--soft);display:grid;place-items:center;font-size:13px;font-weight:700;color:var(--ink);flex-shrink:0}
+.sb-slot .desc{flex:1;min-width:0}
+.sb-slot .desc b{font-size:14px;font-weight:600;display:block;margin-bottom:2px}
+.sb-slot .desc span{font-size:13px;line-height:18px;color:var(--t2)}
+.sb-slot .th{width:96px;height:54px;border-radius:8px;background-size:cover;background-position:center;flex-shrink:0}
+.sb-slot .rm{width:24px;height:24px;border-radius:6px;border:1px solid var(--ring);background:var(--panel);display:grid;place-items:center;color:var(--t3);flex-shrink:0;cursor:pointer}.sb-slot .rm:hover{border-color:var(--ink);color:var(--ink)}
+.sb-gen{display:flex;align-items:center;gap:6px;color:var(--t2);font-size:13px;padding:4px 0}
+.sb-gen svg{animation:spin .9s linear infinite}
+.sb-ready{display:flex;flex-direction:column;gap:12px;padding:20px 0 0;border-top:1px solid var(--line);margin-top:16px}
+.sb-ready .note{font-size:13px;line-height:18px;color:var(--t2)}
+
 /* ---- the app shell (Paper "P App: main"): a labelled sidebar, or the icon rail when collapsed or narrow ---- */
 body.rh{background:var(--page)}body.rh header{display:none}
 body.rh main{padding:28px 40px 24px}
@@ -1121,7 +1140,7 @@ function toEditor(r){const e=(r.edits||[])[0];if(e){location.href='/review?dir='
 // ---------------------------------------------------------------- returning user (Paper "J launcher + pick")
 // New video (pick clips) -> Pick a style -> Making your video; Home (welcome back), Your videos, My style, Settings.
 // the view lives in the address (#videos, #style/@sample-50-50), so a reload stays on it; the review page's rail opens one
-const HASHV=['home','videos','mystyle','skills','settings','new'];
+const HASHV=['home','videos','mystyle','skills','settings','new','storyboard'];
 let L=null, R=null, rv=null;
 {const h=decodeURIComponent(location.hash.slice(1));if(h.startsWith('style/')){rv='stylepage';ui.sp=h.slice(6)}else if(HASHV.includes(h))rv=h}
 function setHash(){const h=rv==='stylepage'&&ui.sp?'#style/'+encodeURIComponent(ui.sp):HASHV.includes(rv)&&rv!=='home'?'#'+rv:'';if(location.hash!==h)history.replaceState(null,'',location.pathname+location.search+h)}
@@ -2031,6 +2050,82 @@ function firstVideoHome(v){
   return `<div class="ph"><h1>Home</h1><p>${{cut:'Your first cut is ready to check.',approve:'Your preview is ready to approve.',edit:'Your first edit is ready to watch.',done:'Your first video is done.'}[ph]||'Your first video is being made. You can leave this window open or closed.'}</p></div>
     <div class="obhome">${vCard(v)}${side}</div>`;
 }
+// ---- storyboard: write an idea → Claude suggests clips → drag-drop clips → approve → pick style → edit
+const SB={idea:'',slots:[],generating:false,jobId:null,approved:false,name:'',style:'mine',msg:''};
+let sbPoll=null;
+async function sbGenerate(){
+  if(!SB.idea.trim()||SB.generating)return;
+  SB.generating=true;SB.slots=[];SB.msg='';SB.jobId=null;render();
+  try{
+    const r=await post('/storyboard/generate',{idea:SB.idea});
+    if(!r.ok){SB.msg=r.error||'Could not start planning.';SB.generating=false;render();return}
+    SB.jobId=r.id;
+    // poll for the storyboard result (Claude writes it via the skill)
+    if(sbPoll)clearInterval(sbPoll);
+    sbPoll=setInterval(async()=>{
+      try{
+        const s=await(await fetch('/storyboard/result?id='+encodeURIComponent(SB.jobId))).json();
+        if(s.status==='done'&&s.clips){
+          clearInterval(sbPoll);sbPoll=null;SB.generating=false;
+          SB.slots=s.clips.map((c,i)=>({id:i,title:c.title||`Clip ${i+1}`,desc:c.description||'',duration:c.duration||'3-5s',tips:c.tips||'',file:null,thumb:null,path:null}));
+          SB.name=s.name||'';render();
+        }else if(s.status==='failed'){
+          clearInterval(sbPoll);sbPoll=null;SB.generating=false;SB.msg=s.error||'Planning failed.';render();
+        }
+      }catch(e){}
+    },2000);
+  }catch(e){SB.msg='Network error: '+e.message;SB.generating=false;render()}
+}
+async function sbDropSlot(e,i){
+  e.preventDefault();e.stopPropagation();
+  const slot=SB.slots[i];if(!slot)return;
+  const files=e.dataTransfer.files;
+  if(!files.length)return;
+  const f=files[0];if(!f.type.startsWith('video/'))return;
+  slot.thumb=URL.createObjectURL(f);slot.path=f.name;render();
+  // upload to the library
+  const q='?name='+encodeURIComponent(f.name);
+  try{
+    const r=await fetch('/upload'+q,{method:'POST',headers:{'Content-Type':'application/octet-stream','Content-Length':f.size},body:f});
+    const j=await r.json();if(j.path){slot.path=j.path;if(j.thumb)slot.thumb=j.thumb}
+  }catch(e){}
+  render();
+}
+function sbClearSlot(i){const s=SB.slots[i];if(s){s.file=null;s.thumb=null;s.path=null}render()}
+function sbAllFilled(){return SB.slots.length>0&&SB.slots.every(s=>s.path)}
+function sbApprove(){
+  if(!sbAllFilled())return;
+  SB.approved=true;
+  const paths=SB.slots.map(s=>s.path);
+  nv.sel=paths;nv.style=SB.style;nv.join=false;
+  rgo('style');
+}
+function sbReset(){if(sbPoll){clearInterval(sbPoll);sbPoll=null}Object.assign(SB,{idea:'',slots:[],generating:false,jobId:null,approved:false,name:'',style:'mine',msg:''});render()}
+function vStoryboard(){
+  const filled=SB.slots.filter(s=>s.path).length,total=SB.slots.length;
+  const idea=`<div style="display:flex;flex-direction:column;gap:12px">
+    <textarea class="sb-idea" placeholder="Describe your video idea or paste a script…\n\nExamples:\n• A 60-second reel about why I switched to standing desks\n• Quick product unboxing: AirPods Max in midnight\n• Story time: the worst flight of my life" oninput="SB.idea=this.value" onfocus="this.rows=6">${esc(SB.idea)}</textarea>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="b1 s" onclick="sbGenerate()" ${SB.idea.trim()&&!SB.generating?'':'disabled'}>${SB.generating?SPIN+'Thinking…':'Plan my clips'}</button>
+      ${SB.slots.length?`<button class="b2 s" onclick="sbReset()">Start over</button>`:''}
+    </div>
+    ${SB.msg?`<div class="msg bad">${CROSS}<span>${esc(SB.msg)}</span></div>`:''}
+  </div>`;
+  const slotHTML=SB.slots.map((s,i)=>{
+    const filled=!!s.path;
+    return `<div class="sb-slot ${filled?'filled':''}" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="this.classList.remove('over');sbDropSlot(event,${i})">
+      <div class="num">${i+1}</div>
+      <div class="desc"><b>${esc(s.title)}</b><span>${esc(s.desc)}${s.duration?' · '+esc(s.duration):''}</span></div>
+      ${filled?`<div class="th" style="background-image:url('${esc(s.thumb||'')}')"></div><button class="rm" title="Remove clip" onclick="sbClearSlot(${i})">${ic('minus',14,2)}</button>`
+       :`<div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:4px 12px;color:var(--t3);font-size:12px">${ic('up',20,1.6)}<span>Drop clip</span></div>`}
+    </div>`;
+  }).join('');
+  const slots=SB.slots.length?`<div style="padding-top:20px"><div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:8px"><b style="font-size:15px">${filled} of ${total} clips filled</b></div>
+    <div class="sb-slots">${slotHTML}</div>
+    ${sbAllFilled()?`<div class="sb-ready"><div class="note">All clips are in. Pick a style and start editing.</div>
+      <button class="b1" onclick="sbApprove()" style="align-self:flex-start">Next: pick a style →</button></div>`:''}</div>`:'';
+  return `<div class="pgc" style="max-width:680px"><div class="ph"><h1>Storyboard</h1><p>Write your video idea. Claude will suggest clips to record. Drag each clip in as you shoot it, then approve to start editing.</p></div>${idea}${slots}</div>`;
+}
 function vHome(){
   if(firstRun())return obView();
   const vids=L.videos,W=cw(),st=L.styles||[],own=st.filter(c=>c.own),cr=st.filter(c=>!c.own&&!c.sample);   // samples stay off the creators shelf
@@ -2085,6 +2180,7 @@ const IC={file:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1
  sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
  moon:'<path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/>'};
 IC.skill='<path d="M13 3 5 13.5h6l-1 7.5 8-10.5h-6z"/>';
+IC.storyboard='<path d="M4 4h16v2H4zM4 10h10v2H4zM4 16h12v2H4zM18 9l4 3-4 3z"/>';
 Object.assign(IC,IC2);
 const ic=(k,px=18,sw=1.8)=>`<svg width="${px}" height="${px}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[k]}</svg>`;
 const DOTS='<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>';
@@ -2153,7 +2249,7 @@ function sideHTML(){
     const it=(k,label,on,js,extra='')=>`<button class="rl-it ${on?'on':''}" onclick="${js}" ${extra}><span class="ic">${ic(k,20,1.9)}</span>${label}</button>`;
     return `<button class="rl-pan" data-home onclick="goHome()" title="Home" aria-label="cooked. home">${PAN(24)}</button>${tog}
       <button class="rl-it rl-new" onclick="rgo('new')"><span class="ic">${ic('plus',20,2.2)}</span>New</button><div style="height:10px;flex-shrink:0"></div>
-      ${it('home','Home',cur==='home','goHome()')}${it('videos','Videos',cur==='videos',vgo,dropAttrs('videos',null))}${it('styles','Styles',onS,"rgo('mystyle')")}${it('skill','Skills',cur==='skills',"rgo('skills')")}
+      ${it('home','Home',cur==='home','goHome()')}${it('storyboard','Plan',cur==='storyboard',"rgo('storyboard')")}${it('videos','Videos',cur==='videos',vgo,dropAttrs('videos',null))}${it('styles','Styles',onS,"rgo('mystyle')")}${it('skill','Skills',cur==='skills',"rgo('skills')")}
       <div class="sb-sp"></div>
       ${ji?`<button class="rl-it rl-job" onclick="${ji.go}" title="${esc(ji.label+': '+ji.text)}"><span class="ic">${ringSvg(ji.frac)}${ji.n}</span>${ji.short}</button>`:''}
       ${it('gear','Settings',cur==='settings',"rgo('settings')")}${thm}`;
@@ -2171,7 +2267,8 @@ function sideHTML(){
     <nav class="sb-nav"><button class="sb-row ${cur==='home'?'on':''}" onclick="goHome()">${ic('home')}<span class="lb">Home</span></button>
       <button class="sb-row ${cur==='videos'&&!ui.fold.videos?'on':''}" onclick="${vgo}" ${dropAttrs('videos',null)}>${ic('videos')}<span class="lb">Your videos</span><span class="n">${vids.length}</span></button>
       <button class="sb-row ${onS?'on':''}" onclick="rgo('mystyle')">${ic('styles')}<span class="lb">Styles</span><span class="n">${st.length}</span></button>
-      <button class="sb-row ${cur==='skills'?'on':''}" onclick="rgo('skills')">${ic('skill')}<span class="lb">Skills</span></button></nav>
+      <button class="sb-row ${cur==='skills'?'on':''}" onclick="rgo('skills')">${ic('skill')}<span class="lb">Skills</span></button>
+      <button class="sb-row ${cur==='storyboard'?'on':''}" onclick="rgo('storyboard')">${ic('storyboard')}<span class="lb">Storyboard</span></button></nav>
     <div class="sb-fold"><div class="sb-fh">Folders<button class="sb-add" title="New folder" aria-label="New folder" onclick="newFolder(null,null,rv==='mystyle'||rv==='stylepage'?'styles':'videos')">${ic('plus',12,2.4)}</button></div>
       <div class="sb-flist">${fd('videos').folders.map(f=>frow('videos',f)).join('')}${fd('styles').folders.map(f=>frow('styles',f)).join('')}${nf}</div></div>
     <div class="sb-sp"></div>
@@ -2391,7 +2488,7 @@ const ZOOMILL={none:'<i class="zb"></i>',smooth:'<i class="zb dash"></i><i class
 const CUTILL={relaxed:[22,16,26,14,18],natural:[24,7,28,6,20],tight:[26,0,30,0,22]};
 function rrender(){
   if(rv==='settings'&&!(ui.diskAt>Date.now()-10000)){ui.diskAt=Date.now();loadDisk()}   // free space is live: read again every 10 s
-  let h=(rv==='stylepage'?vStylePage():rv==='new'?vNew():rv==='style'?vStyle():rv==='videos'?vVideos():rv==='mystyle'?vMyStyle():rv==='skills'?vSkills():rv==='settings'?vSettings():vHome());
+  let h=(rv==='stylepage'?vStylePage():rv==='new'?vNew():rv==='style'?vStyle():rv==='videos'?vVideos():rv==='mystyle'?vMyStyle():rv==='skills'?vSkills():rv==='settings'?vSettings():rv==='storyboard'?vStoryboard():vHome());
   if(rv==='home'&&askRow())h=h.replace(/^\s*(<div class="pgc[^"]*">)/,'$1'+askRow());   // Home's first row
   $('#main').classList.toggle('pg',['home','videos','settings','mystyle','style','stylepage','skills'].includes(rv));
   paint($('#main'),h,rv+'|'+ui.sp);$('#main').classList.toggle('spwrap',rv==='stylepage');
